@@ -43,3 +43,4 @@ next-env.d.ts
 # caches
 /.npm-cache
 /.tmp
+.env
