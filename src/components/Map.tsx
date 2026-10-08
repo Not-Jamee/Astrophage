@@ -22,6 +22,27 @@ import { useEarthquakeData, type USGSEarthquake } from '@/lib/useEarthquakeData'
 import { setWorkerUrl } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
+// ── EONET live events hook ───────────────────────────────────
+interface EonetEvent {
+  id: string;
+  type: 'volcano' | 'wildfire' | 'storm';
+  title: string;
+  date: string | null;
+  coordinates: [number, number];
+  link: string;
+}
+
+function useEonetEvents() {
+  const [events, setEvents] = useState<EonetEvent[]>([]);
+  useEffect(() => {
+    fetch('/api/eonet')
+      .then(r => r.ok ? r.json() : { features: [] })
+      .then(d => setEvents(d.features ?? []))
+      .catch(() => {/* silently skip */});
+  }, []);
+  return events;
+}
+
 // Serve the MapLibre worker from /public to avoid Next.js bundling issues
 if (typeof window !== 'undefined') {
   setWorkerUrl('/maplibre-gl-worker.mjs');
@@ -96,6 +117,9 @@ export default function MapComponent() {
   // Live earthquake + fault data
   const { earthquakes, faultLines, status, lastUpdated, refetch } = useEarthquakeData(4.5, 300);
   const [selectedEq, setSelectedEq] = useState<USGSEarthquake | null>(null);
+
+  // Live EONET natural events (volcanoes, wildfires, storms)
+  const eonetEvents = useEonetEvents();
 
   const activeNode = TARGET_NODES.find(n => n.id === activeNodeId);
   const bb = activeNodeId ? NODE_BOUNDING_BOXES[activeNodeId] : null;
@@ -263,8 +287,30 @@ export default function MapComponent() {
           pickable: false,
         }),
       ] : []),
+
+      // ── NASA EONET live natural events ───────────────────────
+      new ScatterplotLayer<EonetEvent>({
+        id: 'eonet-events',
+        data: eonetEvents,
+        getPosition: (d) => d.coordinates,
+        getRadius: 60000,
+        getFillColor: (d) => {
+          if (d.type === 'volcano')  return [251, 146,  60, 210];
+          if (d.type === 'wildfire') return [239,  68,  68, 210];
+          return [96, 165, 250, 210]; // storm
+        },
+        getLineColor: [255, 255, 255, 60],
+        stroked: true,
+        filled: true,
+        lineWidthMinPixels: 1,
+        radiusUnits: 'meters',
+        radiusMinPixels: 4,
+        radiusMaxPixels: 18,
+        pickable: true,
+        updateTriggers: { getFillColor: eonetEvents.length },
+      }),
     ];
-  }, [filteredFeatures, activeScenario.id, phaseFilterMode, coherenceThreshold, activeNode, currentPassIndex, earthquakes, faultLines]);
+  }, [filteredFeatures, activeScenario.id, phaseFilterMode, coherenceThreshold, activeNode, currentPassIndex, earthquakes, faultLines, eonetEvents]);
 
   return (
     <div className="absolute inset-0 w-full h-full bg-black">
@@ -311,6 +357,29 @@ export default function MapComponent() {
           ↺
         </button>
       </div>
+
+      {/* ── EONET natural events badge ────────────────────────── */}
+      {eonetEvents.length > 0 && (
+        <div
+          className="absolute z-30 flex items-center gap-1.5 px-2 py-1"
+          style={{
+            top: 36, right: 130, pointerEvents: 'none',
+            background: 'rgba(9,9,11,0.82)',
+            border: '1px solid rgba(255,255,255,0.10)',
+            backdropFilter: 'blur(12px)',
+          }}
+        >
+          <div className="w-1.5 h-1.5 rounded-full" style={{ background: '#fb923c' }} />
+          <span className="font-mono" style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.12em' }}>
+            NASA EONET
+          </span>
+          <span className="font-mono" style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.08em' }}>
+            {eonetEvents.filter(e => e.type === 'volcano').length}V&nbsp;
+            {eonetEvents.filter(e => e.type === 'wildfire').length}F&nbsp;
+            {eonetEvents.filter(e => e.type === 'storm').length}S
+          </span>
+        </div>
+      )}
 
       {/* ── Selected earthquake event panel ─────────────────── */}
       {selectedEq && (

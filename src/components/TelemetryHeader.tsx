@@ -2,8 +2,9 @@
  * ============================================================
  * TelemetryHeader – Persistent Top Status Bar
  * ============================================================
- * Displays real-time satellite parameters, UTC timestamp,
- * and payload health.  Persists across all three view modes.
+ * Displays real-time satellite parameters from CelesTrak,
+ * UTC timestamp, and payload health.
+ * Persists across all three view modes.
  * ============================================================
  */
 
@@ -30,7 +31,28 @@ function useUTCClock() {
   return utc;
 }
 
-const { altitude, inclination, swath, downlink, podStatus } = SATELLITE_TELEMETRY;
+interface OrbitData {
+  altitudeKm: number;
+  inclination: number;
+  velocityKms: number;
+  periodMin: number;
+  epoch: string;
+}
+
+function useOrbitData() {
+  const [orbit, setOrbit] = useState<OrbitData | null>(null);
+  useEffect(() => {
+    fetch('/api/orbit')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d && d.altitudeKm) setOrbit(d as OrbitData);
+      })
+      .catch(() => {/* silently fall back to static values */});
+  }, []);
+  return orbit;
+}
+
+const { swath, downlink, podStatus } = SATELLITE_TELEMETRY;
 
 export default function TelemetryHeader() {
   const viewMode = useStore(s => s.viewMode);
@@ -39,6 +61,12 @@ export default function TelemetryHeader() {
   const lBandStatus = useStore(s => s.lBandStatus);
   const sBandStatus = useStore(s => s.sBandStatus);
   const utc = useUTCClock();
+  const orbit = useOrbitData();
+
+  // Use live CelesTrak data if available, fall back to static mock values
+  const altitude    = orbit ? Math.round(orbit.altitudeKm)       : SATELLITE_TELEMETRY.altitude;
+  const inclination = orbit ? orbit.inclination.toFixed(1)        : SATELLITE_TELEMETRY.inclination.toFixed(1);
+  const isLive      = orbit !== null;
 
   const statusColor = podStatus === 'NOMINAL' ? 'var(--nominal)'
     : podStatus === 'DEGRADED' ? 'var(--acquiring)' : 'var(--crimson)';
@@ -102,6 +130,16 @@ export default function TelemetryHeader() {
             />
             <span style={{ color: 'var(--nominal)' }}>ACTIVE</span>
           </span>
+          {/* Live data badge */}
+          {isLive && (
+            <span className="telem-chip" style={{ color: 'var(--nominal)', fontSize: 9 }}>
+              <span
+                className="status-dot mr-1"
+                style={{ background: 'var(--nominal)', boxShadow: '0 0 5px var(--nominal)' }}
+              />
+              CELESTRAK LIVE
+            </span>
+          )}
         </div>
 
         {/* ── UTC timestamp ─────────────────────────────────── */}
